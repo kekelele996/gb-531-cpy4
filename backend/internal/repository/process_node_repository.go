@@ -1,4 +1,5 @@
 package repository
+
 import (
 	"context"
 	"fmt"
@@ -6,7 +7,9 @@ import (
 	"hazop-safeguard-coverage/backend/internal/dto"
 	"hazop-safeguard-coverage/backend/internal/model"
 	"strings"
+	"time"
 )
+
 type ProcessNodeRepository interface {
 	Create(context.Context, *model.ProcessNode) error
 	GetByID(context.Context, uint) (model.ProcessNode, error)
@@ -15,8 +18,11 @@ type ProcessNodeRepository interface {
 	Update(context.Context, *model.ProcessNode) error
 	Deactivate(context.Context, uint) (bool, error)
 	Summary(context.Context, uint) (model.ProcessNodeSummary, error)
+	ListExpiredSafeguardsForNode(context.Context, uint, time.Time) ([]model.Safeguard, error)
+	ListCoverageEvaluationsForNode(context.Context, uint) ([]model.CoverageEvaluation, error)
 }
 type processNodeRepository struct{ db *gorm.DB }
+
 func NewProcessNodeRepository(db *gorm.DB) ProcessNodeRepository {
 	return &processNodeRepository{db: db}
 }
@@ -123,4 +129,36 @@ func (r *processNodeRepository) Summary(ctx context.Context, id uint) (model.Pro
 		return summary, fmt.Errorf("load latest node evaluation: %w", err)
 	}
 	return summary, nil
+}
+func (r *processNodeRepository) ListExpiredSafeguardsForNode(ctx context.Context, nodeID uint, now time.Time) ([]model.Safeguard, error) {
+	expiry := "datetime(safeguards.last_verified_at, '+' || safeguards.test_interval_days || ' days')"
+	if r.db.Dialector.Name() == "postgres" {
+		expiry = "safeguards.last_verified_at + (safeguards.test_interval_days * INTERVAL '1 day')"
+	}
+	var safeguards []model.Safeguard
+	err := r.db.WithContext(ctx).
+		Distinct("safeguards.*").
+		Joins("JOIN deviation_scenarios ON deviation_scenarios.id = safeguards.target_scenario_id").
+		Where("deviation_scenarios.process_node_id = ?", nodeID).
+		Where("safeguards.lifecycle_state <> ?", "invalid").
+		Where("safeguards.last_verified_at IS NULL OR safeguards.test_interval_days <= 0 OR "+expiry+" < ?", now).
+		Order("safeguards.id ASC").
+		Find(&safeguards).Error
+	if err != nil {
+		return nil, fmt.Errorf("list expired safeguards for node %d: %w", nodeID, err)
+	}
+	return safeguards, nil
+}
+func (r *processNodeRepository) ListCoverageEvaluationsForNode(ctx context.Context, nodeID uint) ([]model.CoverageEvaluation, error) {
+	var evaluations []model.CoverageEvaluation
+	err := r.db.WithContext(ctx).
+		Joins("JOIN deviation_scenarios ON deviation_scenarios.id = coverage_evaluations.scenario_id").
+		Where("deviation_scenarios.process_node_id = ?", nodeID).
+		Preload("Scenario").
+		Order("coverage_evaluations.evaluated_at DESC, coverage_evaluations.id DESC").
+		Find(&evaluations).Error
+	if err != nil {
+		return nil, fmt.Errorf("list coverage evaluations for node %d: %w", nodeID, err)
+	}
+	return evaluations, nil
 }

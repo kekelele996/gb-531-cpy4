@@ -59,6 +59,15 @@ func (h *ProcessNodeHandler) Deactivate(c *gin.Context) {
 	result, err := h.service.Deactivate(c.Request.Context(), id, mustActor(c))
 	respond(c, http.StatusOK, result, err)
 }
+func (h *ProcessNodeHandler) DeactivationCheck(c *gin.Context) {
+	id, err := util.ParseUintParam(c, "id")
+	if err != nil {
+		util.Fail(c, err)
+		return
+	}
+	result, err := h.service.DeactivationCheck(c.Request.Context(), id)
+	respond(c, http.StatusOK, result, err)
+}
 func bindJSON(c *gin.Context, target any) bool {
 	if err := c.ShouldBindJSON(target); err != nil {
 		util.Fail(c, util.WrapError(http.StatusBadRequest, util.CodeValidation, "request body validation failed", err))

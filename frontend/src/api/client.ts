@@ -35,7 +35,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<ApiE
       response.status,
       body?.error?.code ?? body?.code ?? 'HTTP_ERROR',
       body?.error?.message ?? body?.message ?? `Request failed with HTTP ${response.status}`,
-      body?.error?.details,
+      body?.error?.details ?? body?.details,
       body?.request_id ?? response.headers.get('X-Request-ID') ?? '',
     )
   }

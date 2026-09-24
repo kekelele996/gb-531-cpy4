@@ -31,7 +31,7 @@ docker compose up -d --build
 
 ## 主要功能
 
-- 工艺节点：维护节点编号、装置、介质、设计压力/温度、责任团队与启停状态，并汇总偏差数量和风险。
+- 工艺节点：维护节点编号、装置、介质、设计压力/温度、责任团队与启停状态，并汇总偏差数量和风险；停用前必须通过未接受偏差、过期保护层与待确认覆盖三类收口检查。
 - 偏差分析：使用 `no/more/less/reverse/other` 引导词记录参数、原因、后果和 5×5 风险矩阵，按受约束状态机完成多人复核。
 - 保护层台账：记录保护类型、目标场景、独立性键、有效性、测试间隔、最近验证时间与证据说明；过期或重复保护层不会被错误重复计分。
 - 覆盖推演：冻结输入，构建原因到后果路径，找出未保护路径，按独立性键去重并保存评分步骤、输入哈希与算法版本。
@@ -74,6 +74,16 @@ queued -> running -> completed -> confirmed
 
 运行接口要求 `Idempotency-Key`。同一调用者复用相同键时返回已有评估，不重复插入结果；历史快照禁止覆盖。
 
+### 停用收口检查
+
+节点停用不再直接关闭，必须先通过一份可解释的收口检查（`GET /process-nodes/:id/deactivation-check`，读权限可用，审计员也能查看风险留痕）：
+
+1. **未接受偏差**：节点下存在 `scenario_state <> accepted` 的偏差场景。
+2. **过期保护层**：节点场景下存在未验证、验证超期（`last_verified_at + test_interval_days < now`）或生命周期非 `invalid` 的过期保护层。
+3. **待确认覆盖**：某场景最新一次覆盖评估未处于 `confirmed`/`voided`（queued/running/completed/failed 均视为未收口；旧版本已确认但新版本未确认时仍阻塞）。
+
+每组返回阻塞项明细、最高风险（取关联场景 5×5 初始风险）与责任团队。存在阻塞项时 `POST deactivate` 与 `PUT` 将 `status` 改为 `inactive` 的旁路都返回 `409 DEACTIVATION_BLOCKED`，响应体携带同一份检查结果，条件更新保证节点保持原状态；全部清零后原停用动作照常完成。前端停用按钮先打开收口检查弹窗，确认停用前展示检查结果，被挡住时只能重新检查，清完后才允许确认。
+
 ## 共享枚举位置
 
 `DeviationGuideword = no | more | less | reverse | other`
@@ -115,7 +125,8 @@ queued -> running -> completed -> confirmed
 | `POST` | `/api/v1/auth/login` | 登录并签发 JWT，独立限流 |
 | `GET/POST` | `/api/v1/process-nodes` | 节点列表与建档 |
 | `GET/PUT` | `/api/v1/process-nodes/:id` | 节点详情与设计边界更新 |
-| `POST` | `/api/v1/process-nodes/:id/deactivate` | 停用节点 |
+| `GET` | `/api/v1/process-nodes/:id/deactivation-check` | 停用前可解释收口检查 |
+| `POST` | `/api/v1/process-nodes/:id/deactivate` | 停用节点（收口检查通过后） |
 | `GET/POST` | `/api/v1/deviation-scenarios` | 偏差列表与创建 |
 | `GET/PUT` | `/api/v1/deviation-scenarios/:id` | 偏差详情与新版本更新 |
 | `POST` | `/api/v1/deviation-scenarios/:id/transition` | 条件状态迁移 |

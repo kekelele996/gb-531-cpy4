@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { Pencil, Plus, Power, RefreshCw, Search } from 'lucide-vue-next'
 import AppShell from '../components/common/AppShell.vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import RiskBadge from '../components/common/RiskBadge.vue'
+import DeactivationGateDialog from '../components/common/DeactivationGateDialog.vue'
 import { useAuth } from '../hooks/useAuth'
 import { useProcessNodeStore } from '../stores/process-node'
 import { useDeviationScenarioStore } from '../stores/deviation-scenario'
@@ -33,9 +34,12 @@ async function save() {
   try { editingId.value ? await nodes.update(editingId.value, form) : await nodes.create(form); dialog.value = false; ElMessage.success(editingId.value ? '节点边界已更新' : '工艺节点已建档') }
   catch (error) { ElMessage.error(errorMessage(error)) } finally { saving.value = false }
 }
-async function deactivate(node: ProcessNode) {
-  try { await ElMessageBox.confirm(`停用 ${node.node_code} 后将不能新增偏差场景。`, '确认停用', { type: 'warning' }); await nodes.deactivate(node.id); ElMessage.success('节点已停用') }
-  catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(errorMessage(error)) }
+const gateVisible = ref(false)
+const gateNode = ref<ProcessNode>()
+function openGate(node: ProcessNode) { gateNode.value = node; gateVisible.value = true }
+async function onDeactivated(updated: ProcessNode) {
+  await refresh()
+  ElMessage.success(`节点 ${updated.node_code} 已通过收口检查并停用`)
 }
 onMounted(refresh)
 </script>
@@ -62,7 +66,7 @@ onMounted(refresh)
         <el-table-column prop="owner_team" label="责任团队" min-width="140" />
         <el-table-column label="状态" width="95"><template #default="{ row }"><span class="state-label" :class="row.status">{{ row.status === 'active' ? '在用' : '停用' }}</span></template></el-table-column>
         <el-table-column v-if="canEdit" label="操作" width="105" fixed="right">
-          <template #default="{ row }"><el-tooltip content="编辑设计边界"><el-button circle text aria-label="编辑" @click="openEdit(row)"><Pencil :size="16" /></el-button></el-tooltip><el-tooltip content="停用节点"><el-button circle text type="danger" aria-label="停用" :disabled="row.status !== 'active'" @click="deactivate(row)"><Power :size="16" /></el-button></el-tooltip></template>
+          <template #default="{ row }"><el-tooltip content="编辑设计边界"><el-button circle text aria-label="编辑" @click="openEdit(row)"><Pencil :size="16" /></el-button></el-tooltip><el-tooltip content="停用前收口检查"><el-button circle text type="danger" aria-label="停用" :disabled="row.status !== 'active'" @click="openGate(row)"><Power :size="16" /></el-button></el-tooltip></template>
         </el-table-column>
       </el-table>
     </section>
@@ -76,5 +80,6 @@ onMounted(refresh)
       </el-form>
       <template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">{{ editingId ? '保存边界' : '创建节点' }}</el-button></template>
     </el-dialog>
+    <DeactivationGateDialog v-model:visible="gateVisible" :node="gateNode ?? null" @deactivated="onDeactivated" />
   </AppShell>
 </template>

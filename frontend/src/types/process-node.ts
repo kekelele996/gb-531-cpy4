@@ -33,3 +33,36 @@ export interface ProcessNodeInput {
   owner_team: string
   status?: NodeStatus
 }
+
+export type DeactivationGateKey = 'open_deviations' | 'expired_safeguards' | 'unconfirmed_coverage'
+
+export interface DeactivationBlockerItem {
+  id: number
+  scenario_id?: number
+  title: string
+  detail?: string
+  state?: string
+  risk_score: number
+  risk_rank: string
+  owner_team: string
+  verification_expires_at?: string
+}
+
+export interface DeactivationBlockerGroup {
+  key: DeactivationGateKey
+  count: number
+  highest_risk: number
+  highest_rank: string
+  owner_teams: string[]
+  items: DeactivationBlockerItem[]
+}
+
+export interface DeactivationCheck {
+  node_id: number
+  node_code: string
+  node_status: NodeStatus
+  blocked: boolean
+  total_items: number
+  groups: DeactivationBlockerGroup[]
+  checked_at: string
+}

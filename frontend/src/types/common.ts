@@ -13,6 +13,7 @@ export interface PageData<T> {
 export interface ApiErrorBody {
   code?: string
   message?: string
+  details?: unknown
   error?: { code?: string; message?: string; details?: unknown }
   request_id?: string
 }

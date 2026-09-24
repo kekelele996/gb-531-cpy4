@@ -1,44 +1,55 @@
 package util
+
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
 	"strings"
-	"github.com/gin-gonic/gin"
 )
+
 type ErrorCode string
+
 const (
-	CodeBadRequest       ErrorCode = "BAD_REQUEST"
-	CodeUnauthorized     ErrorCode = "UNAUTHORIZED"
-	CodeForbidden        ErrorCode = "FORBIDDEN"
-	CodeNotFound         ErrorCode = "NOT_FOUND"
-	CodeConflict         ErrorCode = "CONFLICT"
-	CodeValidation       ErrorCode = "VALIDATION_FAILED"
-	CodeRateLimited      ErrorCode = "RATE_LIMITED"
-	CodeInternal         ErrorCode = "INTERNAL_ERROR"
-	CodeIdempotency      ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
-	CodeStateTransition  ErrorCode = "INVALID_STATE_TRANSITION"
-	CodeReviewerConflict ErrorCode = "REVIEWER_AUTHOR_CONFLICT"
+	CodeBadRequest          ErrorCode = "BAD_REQUEST"
+	CodeUnauthorized        ErrorCode = "UNAUTHORIZED"
+	CodeForbidden           ErrorCode = "FORBIDDEN"
+	CodeNotFound            ErrorCode = "NOT_FOUND"
+	CodeConflict            ErrorCode = "CONFLICT"
+	CodeValidation          ErrorCode = "VALIDATION_FAILED"
+	CodeRateLimited         ErrorCode = "RATE_LIMITED"
+	CodeInternal            ErrorCode = "INTERNAL_ERROR"
+	CodeIdempotency         ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
+	CodeStateTransition     ErrorCode = "INVALID_STATE_TRANSITION"
+	CodeReviewerConflict    ErrorCode = "REVIEWER_AUTHOR_CONFLICT"
+	CodeDeactivationBlocked ErrorCode = "DEACTIVATION_BLOCKED"
 )
+
 type AppError struct {
 	Status  int
 	Code    ErrorCode
 	Message string
 	Cause   error
+	Details any
 }
+
 func (e *AppError) Error() string {
 	if e.Cause == nil {
 		return e.Message
 	}
 	return fmt.Sprintf("%s: %v", e.Message, e.Cause)
 }
+
 func (e *AppError) Unwrap() error { return e.Cause }
 func NewError(status int, code ErrorCode, message string) *AppError {
 	return &AppError{Status: status, Code: code, Message: message}
+}
+func NewErrorWithDetails(status int, code ErrorCode, message string, details any) *AppError {
+	return &AppError{Status: status, Code: code, Message: message, Details: details}
 }
 func WrapError(status int, code ErrorCode, message string, cause error) *AppError {
 	return &AppError{Status: status, Code: code, Message: message, Cause: cause}
@@ -49,12 +60,15 @@ func Conflict(message string) *AppError {
 func NotFound(entity string) *AppError {
 	return NewError(http.StatusNotFound, CodeNotFound, entity+" was not found")
 }
+
 type Envelope struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
 	Data      any    `json:"data,omitempty"`
+	Details   any    `json:"details,omitempty"`
 	RequestID string `json:"request_id"`
 }
+
 func Success(c *gin.Context, status int, data any) {
 	c.JSON(status, Envelope{Code: "OK", Message: "success", Data: data, RequestID: RequestID(c)})
 }
@@ -65,7 +79,7 @@ func Fail(c *gin.Context, err error) {
 	}
 	c.Error(appErr) //nolint:errcheck
 	c.AbortWithStatusJSON(appErr.Status, Envelope{
-		Code: string(appErr.Code), Message: appErr.Message, RequestID: RequestID(c),
+		Code: string(appErr.Code), Message: appErr.Message, Details: appErr.Details, RequestID: RequestID(c),
 	})
 }
 func RequestID(c *gin.Context) string {
@@ -76,6 +90,7 @@ func RequestID(c *gin.Context) string {
 	}
 	return ""
 }
+
 type Actor struct {
 	UserID      uint   `json:"user_id"`
 	Username    string `json:"username"`
@@ -83,6 +98,7 @@ type Actor struct {
 	Role        string `json:"role"`
 	RequestID   string `json:"request_id"`
 }
+
 func ParseUintParam(c *gin.Context, name string) (uint, error) {
 	raw := c.Param(name)
 	value, err := strconv.ParseUint(raw, 10, 64)

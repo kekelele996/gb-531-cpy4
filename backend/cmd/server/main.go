@@ -47,7 +47,7 @@ func run(logger *slog.Logger) error {
 	evaluationRepo := repository.NewCoverageEvaluationRepository(db)
 	auditRepo := repository.NewAuditRepository(db)
 	userRepo := repository.NewUserRepository(db)
-	nodeHandler := handler.NewProcessNodeHandler(service.NewProcessNodeService(nodeRepo, auditRepo))
+	nodeHandler := handler.NewProcessNodeHandler(service.NewProcessNodeService(nodeRepo, scenarioRepo, auditRepo))
 	scenarioHandler := handler.NewDeviationScenarioHandler(service.NewDeviationScenarioService(scenarioRepo, nodeRepo, auditRepo))
 	safeguardHandler := handler.NewSafeguardHandler(service.NewSafeguardService(safeguardRepo, scenarioRepo, auditRepo))
 	evaluationHandler := handler.NewCoverageEvaluationHandler(service.NewCoverageEvaluationService(

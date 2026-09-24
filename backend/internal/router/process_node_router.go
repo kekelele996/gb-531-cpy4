@@ -12,6 +12,7 @@ func RegisterProcessNodeRoutes(api *gin.RouterGroup, h *handler.ProcessNodeHandl
 	group := api.Group("/process-nodes")
 	group.GET("", middleware.RequirePermission(constants.PermissionRead), h.List)
 	group.GET("/:id", middleware.RequirePermission(constants.PermissionRead), h.Get)
+	group.GET("/:id/deactivation-check", middleware.RequirePermission(constants.PermissionRead), h.DeactivationCheck)
 	group.POST("", middleware.RequirePermission(constants.PermissionNodeWrite), h.Create)
 	group.PUT("/:id", middleware.RequirePermission(constants.PermissionNodeWrite), h.Update)
 	group.POST("/:id/deactivate", middleware.RequirePermission(constants.PermissionNodeWrite), h.Deactivate)

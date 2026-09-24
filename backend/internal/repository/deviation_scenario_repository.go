@@ -1,4 +1,5 @@
 package repository
+
 import (
 	"context"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 )
+
 type DeviationScenarioRepository interface {
 	Create(context.Context, *model.DeviationScenario) error
 	GetByID(context.Context, uint, bool) (model.DeviationScenario, error)
@@ -15,8 +17,10 @@ type DeviationScenarioRepository interface {
 	UpdateWithVersion(context.Context, *model.DeviationScenario, int) (bool, error)
 	Transition(context.Context, uint, string, string, int, *uint, string) (bool, error)
 	CountByNode(context.Context, uint) (int64, error)
+	ListOpenByNode(context.Context, uint) ([]model.DeviationScenario, error)
 }
 type deviationScenarioRepository struct{ db *gorm.DB }
+
 func NewDeviationScenarioRepository(db *gorm.DB) DeviationScenarioRepository {
 	return &deviationScenarioRepository{db: db}
 }
@@ -124,4 +128,13 @@ func (r *deviationScenarioRepository) CountByNode(ctx context.Context, nodeID ui
 		return 0, fmt.Errorf("count scenarios for node %d: %w", nodeID, err)
 	}
 	return count, nil
+}
+func (r *deviationScenarioRepository) ListOpenByNode(ctx context.Context, nodeID uint) ([]model.DeviationScenario, error) {
+	var scenarios []model.DeviationScenario
+	if err := r.db.WithContext(ctx).
+		Where("process_node_id = ? AND scenario_state <> ?", nodeID, "accepted").
+		Order("likelihood * severity DESC, id ASC").Find(&scenarios).Error; err != nil {
+		return nil, fmt.Errorf("list open scenarios for node %d: %w", nodeID, err)
+	}
+	return scenarios, nil
 }
