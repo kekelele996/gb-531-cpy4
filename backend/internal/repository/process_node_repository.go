@@ -15,6 +15,7 @@ type ProcessNodeRepository interface {
 	Update(context.Context, *model.ProcessNode) error
 	Deactivate(context.Context, uint) (bool, error)
 	Summary(context.Context, uint) (model.ProcessNodeSummary, error)
+	ClosureData(context.Context, uint) (model.NodeClosureData, error)
 }
 type processNodeRepository struct{ db *gorm.DB }
 func NewProcessNodeRepository(db *gorm.DB) ProcessNodeRepository {
@@ -90,6 +91,32 @@ func (r *processNodeRepository) Deactivate(ctx context.Context, id uint) (bool, 
 		return false, fmt.Errorf("deactivate process node %d: %w", id, result.Error)
 	}
 	return result.RowsAffected == 1, nil
+}
+func (r *processNodeRepository) ClosureData(ctx context.Context, id uint) (model.NodeClosureData, error) {
+	data := model.NodeClosureData{}
+	node, err := r.GetByID(ctx, id)
+	if err != nil {
+		return data, err
+	}
+	data.Node = node
+	if err := r.db.WithContext(ctx).Where("process_node_id = ?", id).
+		Order("updated_at DESC, id DESC").Find(&data.Scenarios).Error; err != nil {
+		return data, fmt.Errorf("load node scenarios for closure check: %w", err)
+	}
+	if err := r.db.WithContext(ctx).
+		Joins("JOIN deviation_scenarios ON deviation_scenarios.id = safeguards.target_scenario_id").
+		Where("deviation_scenarios.process_node_id = ?", id).
+		Order("safeguards.id ASC").Find(&data.Safeguards).Error; err != nil {
+		return data, fmt.Errorf("load node safeguards for closure check: %w", err)
+	}
+	if err := r.db.WithContext(ctx).
+		Joins("JOIN deviation_scenarios ON deviation_scenarios.id = coverage_evaluations.scenario_id").
+		Where("deviation_scenarios.process_node_id = ?", id).
+		Order("coverage_evaluations.evaluated_at DESC, coverage_evaluations.id DESC").
+		Find(&data.Evaluations).Error; err != nil {
+		return data, fmt.Errorf("load node evaluations for closure check: %w", err)
+	}
+	return data, nil
 }
 func (r *processNodeRepository) Summary(ctx context.Context, id uint) (model.ProcessNodeSummary, error) {
 	var summary model.ProcessNodeSummary

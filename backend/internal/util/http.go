@@ -23,11 +23,13 @@ const (
 	CodeIdempotency      ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
 	CodeStateTransition  ErrorCode = "INVALID_STATE_TRANSITION"
 	CodeReviewerConflict ErrorCode = "REVIEWER_AUTHOR_CONFLICT"
+	CodeClosureBlocked   ErrorCode = "CLOSURE_CHECK_BLOCKED"
 )
 type AppError struct {
 	Status  int
 	Code    ErrorCode
 	Message string
+	Details any
 	Cause   error
 }
 func (e *AppError) Error() string {
@@ -46,6 +48,9 @@ func WrapError(status int, code ErrorCode, message string, cause error) *AppErro
 func Conflict(message string) *AppError {
 	return NewError(http.StatusConflict, CodeConflict, message)
 }
+func ClosureBlocked(message string, details any) *AppError {
+	return &AppError{Status: http.StatusConflict, Code: CodeClosureBlocked, Message: message, Details: details}
+}
 func NotFound(entity string) *AppError {
 	return NewError(http.StatusNotFound, CodeNotFound, entity+" was not found")
 }
@@ -53,6 +58,7 @@ type Envelope struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
 	Data      any    `json:"data,omitempty"`
+	Details   any    `json:"details,omitempty"`
 	RequestID string `json:"request_id"`
 }
 func Success(c *gin.Context, status int, data any) {
@@ -65,7 +71,7 @@ func Fail(c *gin.Context, err error) {
 	}
 	c.Error(appErr) //nolint:errcheck
 	c.AbortWithStatusJSON(appErr.Status, Envelope{
-		Code: string(appErr.Code), Message: appErr.Message, RequestID: RequestID(c),
+		Code: string(appErr.Code), Message: appErr.Message, Details: appErr.Details, RequestID: RequestID(c),
 	})
 }
 func RequestID(c *gin.Context) string {

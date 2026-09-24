@@ -23,3 +23,10 @@ type ProcessNodeSummary struct {
 	LatestCoverage     float64 `json:"latest_coverage"`
 	UncoveredPathCount int     `json:"uncovered_path_count"`
 }
+
+type NodeClosureData struct {
+	Node        ProcessNode
+	Scenarios   []DeviationScenario
+	Safeguards  []Safeguard
+	Evaluations []CoverageEvaluation
+}

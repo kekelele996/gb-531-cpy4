@@ -17,6 +17,7 @@ type ProcessNodeService interface {
 	Get(context.Context, uint) (dto.ProcessNodeResponse, error)
 	List(context.Context, dto.ProcessNodeQuery) (dto.ProcessNodeListResponse, error)
 	Update(context.Context, uint, dto.UpdateProcessNodeRequest, util.Actor) (dto.ProcessNodeResponse, error)
+	DeactivationCheck(context.Context, uint) (dto.DeactivationCheckResponse, error)
 	Deactivate(context.Context, uint, util.Actor) (dto.ProcessNodeResponse, error)
 }
 type processNodeService struct {
@@ -137,6 +138,13 @@ func (s *processNodeService) Update(
 	}
 	return dto.NewProcessNodeResponse(node, summary), nil
 }
+func (s *processNodeService) DeactivationCheck(ctx context.Context, id uint) (dto.DeactivationCheckResponse, error) {
+	check, err := s.buildClosureCheck(ctx, id)
+	if err != nil {
+		return dto.DeactivationCheckResponse{}, err
+	}
+	return check, nil
+}
 func (s *processNodeService) Deactivate(ctx context.Context, id uint, actor util.Actor) (dto.ProcessNodeResponse, error) {
 	node, err := s.nodes.GetByID(ctx, id)
 	if err != nil {
@@ -147,6 +155,18 @@ func (s *processNodeService) Deactivate(ctx context.Context, id uint, actor util
 	}
 	if node.Status == "inactive" {
 		return dto.ProcessNodeResponse{}, util.NewError(http.StatusConflict, util.CodeStateTransition, "process node is already inactive")
+	}
+	check, err := s.buildClosureCheck(ctx, id)
+	if err != nil {
+		return dto.ProcessNodeResponse{}, err
+	}
+	if !check.CanDeactivate {
+		if auditErr := s.recordBlockedAudit(ctx, actor, node.ID, check); auditErr != nil {
+			return dto.ProcessNodeResponse{}, auditErr
+		}
+		return dto.ProcessNodeResponse{}, util.ClosureBlocked(
+			"process node cannot be deactivated until closure items are cleared", check,
+		)
 	}
 	before := node
 	changed, err := s.nodes.Deactivate(ctx, id)
@@ -162,6 +182,79 @@ func (s *processNodeService) Deactivate(ctx context.Context, id uint, actor util
 		return dto.ProcessNodeResponse{}, err
 	}
 	return s.Get(ctx, id)
+}
+func (s *processNodeService) buildClosureCheck(ctx context.Context, id uint) (dto.DeactivationCheckResponse, error) {
+	data, err := s.nodes.ClosureData(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.DeactivationCheckResponse{}, util.NotFound("process node")
+		}
+		return dto.DeactivationCheckResponse{}, util.WrapError(http.StatusInternalServerError, util.CodeInternal, "unable to load closure check data", err)
+	}
+	now := s.now()
+	scenarios := make([]dto.ScenarioRiskInput, 0, len(data.Scenarios))
+	for _, scenario := range data.Scenarios {
+		scenarios = append(scenarios, dto.ScenarioRiskInput{
+			ID: scenario.ID, Reference: scenario.Guideword + " / " + scenario.Parameter,
+			State: scenario.ScenarioState, Risk: scenario.InitialRisk(),
+		})
+	}
+	safeguards := make([]dto.SafeguardExpiryInput, 0, len(data.Safeguards))
+	for _, safeguard := range data.Safeguards {
+		// Deliberately invalidated layers are out of service by decision, not by expiry.
+		if safeguard.LifecycleState == "invalid" {
+			continue
+		}
+		state := safeguard.LifecycleState
+		reason := "verification_expired"
+		switch {
+		case safeguard.LastVerifiedAt == nil:
+			reason = "never_verified"
+		case safeguard.TestIntervalDays <= 0:
+			reason = "test_interval_invalid"
+		case now.After(*safeguard.VerificationExpiresAt()):
+			reason = "verification_expired"
+		default:
+			continue
+		}
+		safeguards = append(safeguards, dto.SafeguardExpiryInput{
+			ID: safeguard.ID, ScenarioID: safeguard.TargetScenarioID, Name: safeguard.Name,
+			State: state, Reason: reason, Expired: true,
+		})
+	}
+	latestByScenario := make(map[uint]dto.CoverageLatestInput)
+	for _, evaluation := range data.Evaluations {
+		if _, exists := latestByScenario[evaluation.ScenarioID]; exists {
+			continue
+		}
+		latestByScenario[evaluation.ScenarioID] = dto.CoverageLatestInput{
+			ID: evaluation.ID, State: evaluation.EvaluationState,
+		}
+	}
+	return dto.BuildDeactivationCheck(data.Node, scenarios, safeguards, latestByScenario, now), nil
+}
+func (s *processNodeService) recordBlockedAudit(
+	ctx context.Context,
+	actor util.Actor,
+	nodeID uint,
+	check dto.DeactivationCheckResponse,
+) error {
+	summary := map[string]any{"can_deactivate": check.CanDeactivate, "categories": check.Categories}
+	afterJSON, err := snapshotJSON(summary)
+	if err != nil {
+		return util.WrapError(http.StatusInternalServerError, util.CodeInternal, "unable to serialize audit snapshot", err)
+	}
+	log := model.AuditLog{
+		RequestID: actor.RequestID, ActorID: actor.UserID, ActorName: actor.Username,
+		ActorRole: actor.Role, EntityType: "process_node", EntityID: nodeID,
+		Action: "deactivate_blocked", BeforeSnapshot: "{}", AfterSnapshot: afterJSON,
+		ResultSummary: fmt.Sprintf("blocked by %d open closure item(s)", check.BlockingItemCount),
+		CreatedAt: s.now(),
+	}
+	if err := s.audits.Record(ctx, log); err != nil {
+		return util.WrapError(http.StatusInternalServerError, util.CodeInternal, "unable to record blocked deactivation audit", err)
+	}
+	return nil
 }
 func (s *processNodeService) recordAudit(
 	ctx context.Context,

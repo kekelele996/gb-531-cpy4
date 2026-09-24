@@ -50,6 +50,15 @@ func (h *ProcessNodeHandler) Update(c *gin.Context) {
 	result, err := h.service.Update(c.Request.Context(), id, request, mustActor(c))
 	respond(c, http.StatusOK, result, err)
 }
+func (h *ProcessNodeHandler) DeactivationCheck(c *gin.Context) {
+	id, err := util.ParseUintParam(c, "id")
+	if err != nil {
+		util.Fail(c, err)
+		return
+	}
+	result, err := h.service.DeactivationCheck(c.Request.Context(), id)
+	respond(c, http.StatusOK, result, err)
+}
 func (h *ProcessNodeHandler) Deactivate(c *gin.Context) {
 	id, err := util.ParseUintParam(c, "id")
 	if err != nil {

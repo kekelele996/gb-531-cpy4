@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { Pencil, Plus, Power, RefreshCw, Search } from 'lucide-vue-next'
 import AppShell from '../components/common/AppShell.vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import RiskBadge from '../components/common/RiskBadge.vue'
+import DeactivationGateDialog from '../components/common/DeactivationGateDialog.vue'
 import { useAuth } from '../hooks/useAuth'
 import { useProcessNodeStore } from '../stores/process-node'
 import { useDeviationScenarioStore } from '../stores/deviation-scenario'
@@ -33,10 +34,10 @@ async function save() {
   try { editingId.value ? await nodes.update(editingId.value, form) : await nodes.create(form); dialog.value = false; ElMessage.success(editingId.value ? '节点边界已更新' : '工艺节点已建档') }
   catch (error) { ElMessage.error(errorMessage(error)) } finally { saving.value = false }
 }
-async function deactivate(node: ProcessNode) {
-  try { await ElMessageBox.confirm(`停用 ${node.node_code} 后将不能新增偏差场景。`, '确认停用', { type: 'warning' }); await nodes.deactivate(node.id); ElMessage.success('节点已停用') }
-  catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(errorMessage(error)) }
-}
+const gateVisible = ref(false)
+const gateNode = ref<ProcessNode>()
+async function deactivate(node: ProcessNode) { gateNode.value = node; gateVisible.value = true }
+async function onDeactivated() { await refresh() }
 onMounted(refresh)
 </script>
 
@@ -76,5 +77,6 @@ onMounted(refresh)
       </el-form>
       <template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">{{ editingId ? '保存边界' : '创建节点' }}</el-button></template>
     </el-dialog>
+    <DeactivationGateDialog v-model="gateVisible" :node="gateNode ?? null" @deactivated="onDeactivated" />
   </AppShell>
 </template>
